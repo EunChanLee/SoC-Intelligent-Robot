@@ -1,0 +1,400 @@
+int mot_runBridge(int fcnt) {
+	int px, py, cntA, cntB;
+	U8 hue, sat, val;
+	int dstX;
+
+	int n, state, flg, loop_ctrl, flow_ctrl;
+	int stateA, stateB;
+	FILE* logf = NULL;
+	char fname[50] = { 0 };
+	strcat(fname, "log_runBdg");
+	concat_num(fname, fcnt);
+	logf = fopen(fname, "w");
+
+	U16* fvda = (U16*)malloc(sizeof(U16)*(pl + hl));
+	U16* surf = (U16*)malloc(sizeof(U16)*pl);
+	U16* pala_mem = (U16*)malloc(sizeof(U16)*pl);
+	
+	U16** mysurf = (U16**)malloc(sizeof(U16*) * 120);
+	for (n = 0; n < 120; n++)
+		mysurf[n] = &surf[n * 180];
+
+	U16** pala = (U16**)malloc(sizeof(U16*) * 120);
+	for (n = 0; n < 120; n++)
+		pala[n] = &pala_mem[n * 180];
+
+	Motion_SOC(_2cm_up);
+	Motion_SOC(head_std);
+	_wait_d;
+	_wait_d;
+	Motion_SOC(walk_1);
+	_wait_d;
+	Motion_SOC(head_2cm);
+
+	fprintf(logf, "[LOG] mot_runBridge \n>> start to run on bridge.\n");
+
+	// check line & rearrange
+	flg = 0;
+	loop_ctrl = 0;
+	flow_ctrl = 0;
+
+	while (1) {
+		direct_camera_display_off();
+		stateA = bdgpeek(logf, flg, default_obs);
+		direct_camera_display_on();
+
+		if (stateA != fitted) {
+			switch (stateA) {
+			case skewed_left:
+				fprintf(logf, "[LOG] mot_runBridge \n>> skewed left.\n");
+				Motion_SOC(tr_1);
+				fprintf(logf, ">> turn right.\n");
+				break;
+			case skewed_right:
+				fprintf(logf, "[LOG] mot_runBridge \n>> skewed right.\n");
+				Motion_SOC(tl_1);
+				fprintf(logf, ">> turn left.\n");
+				break;
+			case far_far:
+				fprintf(logf, "[LOG] mot_runBridge \n>> The left line is very close.\n");
+				Motion_SOC(sr_2);
+				fprintf(logf, ">> move right fast.\n");
+				break;
+			case far:
+				fprintf(logf, "[LOG] mot_runBridge \n>> The left line is close.\n");
+				Motion_SOC(sr_1);
+				fprintf(logf, ">> move right.\n");
+				break;
+			case bit_close:
+				fprintf(logf, "[LOG] mot_runBridge \n>> The right line is close.\n");
+				Motion_SOC(sl_1);
+				fprintf(logf, ">> move left.\n");
+				break;
+			case too_close:
+				fprintf(logf, "[LOG] mot_runBridge \n>> The right line is very close.\n");
+				Motion_SOC(sl_2);
+				fprintf(logf, ">> move left fast.\n");
+				break;
+			default:
+				fprintf(logf, "[LOG] mot_runBridge \n>> line is not detected.\n");
+
+				read_fpga_video_data(fvda);
+				get_surf(surf, fvda);
+
+				memset(pala_mem, 0, sizeof(U16)*pl);
+				cntA = 0;
+				cntB = 0;
+
+				// left side
+				for (py = 0; py < 120; py++) {
+					for (px = 0; px < 90; px++) {
+						hue = (U8)((0xff00 & mysurf[py][px]) >> 8);
+						sat = (U8)((0x00f0 & mysurf[py][px]) >> 4);
+						val = (U8)(0x000f & mysurf[py][px]);
+
+						if ((hue < 125 && hue >= 78) && (sat > 3) && (val > 3)) {
+							cntA++;
+							pala[py][px] = 0xf100;
+						}
+					}
+				}
+				// right side
+				for (py = 0; py < 120; py++) {
+					for (px = 90; px < 180; px++) {
+						hue = (U8)((0xff00 & mysurf[py][px]) >> 8);
+						sat = (U8)((0x00f0 & mysurf[py][px]) >> 4);
+						val = (U8)(0x000f & mysurf[py][px]);
+
+						if ((hue < 125 && hue >= 78) && (sat > 3) && (val > 3)) {
+							cntB++;
+							pala[py][px] = 0x001f;
+						}
+					}
+				}
+
+				clear_screen();
+				draw_fpga_video_data_full(pala_mem);
+				flip();
+
+				if (cntA > cntB)
+					Motion_SOC(sl_1);
+				else
+					Motion_SOC(sr_1);
+
+				break;
+			}
+		}
+		else {
+			fprintf(logf, "[LOG] mot_runBridge \n>> line is fitted.\n");
+			break;
+		}
+	}
+
+	Motion_SOC(walk_4);
+	//Motion_SOC(walk_2);
+
+	fprintf(logf, "[LOG] mot_runBridge \n>> Now I'm on Bridge.\n");
+
+	flg = 1;
+	loop_ctrl = 1;
+	flow_ctrl = 0;
+
+	
+	while (loop_ctrl) {
+		
+		direct_camera_display_off();
+		stateA = bdgpeek(logf, flg, default_obs);
+		stateB = line_target(logf, 80, fitting, bot_porking, default_obs);
+		direct_camera_display_on();
+
+		// version1
+		/*
+		if (stateA != fitted) {
+			switch (stateA) {
+			case skewed_left:
+				fprintf(logf, "[LOG] mot_runBridge \n>> skewed left.\n");
+				Motion_SOC(tr_1);
+				fprintf(logf, ">> turn right.\n");
+				break;
+			case skewed_right:
+				fprintf(logf, "[LOG] mot_runBridge \n>> skewed right.\n");
+				Motion_SOC(tl_1);
+				fprintf(logf, ">> turn left.\n");
+				break;
+			case far_far:
+				fprintf(logf, "[LOG] mot_runBridge \n>> The left line is very close.\n");
+				Motion_SOC(sr_2);
+				fprintf(logf, ">> move right fast.\n");
+				break;
+			case far:
+				fprintf(logf, "[LOG] mot_runBridge \n>> The left line is close.\n");
+				Motion_SOC(sr_1);
+				fprintf(logf, ">> move right.\n");
+				break;
+			case bit_close:
+				fprintf(logf, "[LOG] mot_runBridge \n>> The right line is close.\n");
+				Motion_SOC(sl_1);
+				fprintf(logf, ">> move left.\n");
+				break;
+			case too_close:
+				fprintf(logf, "[LOG] mot_runBridge \n>> The right line is very close.\n");
+				Motion_SOC(sl_2);
+				fprintf(logf, ">> move left fast.\n");
+				break;
+			default:
+				fprintf(logf, "[LOG] mot_runBridge \n>> line is not detected.\n");
+				if (flow_ctrl) {
+					Motion_SOC(walk_4);
+					fprintf(logf, ">> move forward.\n");
+				}
+				else {
+					Motion_SOC(tr_1);
+					fprintf(logf, ">> turn right.\n");
+				}
+				break;
+			}
+		}
+		else {
+			fprintf(logf, "[LOG] mot_runBridge \n>> line is fitted.\n");
+			Motion_SOC(walk_4);
+			fprintf(logf, ">> move forward.\n");
+		}
+		*/
+
+		
+		// version2
+		switch (stateA) {
+		case skewed_left:
+			fprintf(logf, "[LOG] mot_runBridge \n>> skewed left.\n");
+			Motion_SOC(tr_1);
+			fprintf(logf, ">> turn right.\n");
+			break;
+		case skewed_right:
+			fprintf(logf, "[LOG] mot_runBridge \n>> skewed right.\n");
+			Motion_SOC(tl_1);
+			fprintf(logf, ">> turn left.\n");
+			break;
+		default:
+			fprintf(logf, "[LOG] mot_runBridge \n>> extra.\n");
+			if (flow_ctrl) {
+				Motion_SOC(walk_4);
+				fprintf(logf, ">> move forward.\n");
+			}
+			else {
+				read_fpga_video_data(fvda);
+				get_surf(surf, fvda);
+
+				memset(pala_mem, 0, sizeof(U16)*pl);
+
+				
+				cntA = 0; // cntA : sum
+				cntB = 0; // cntB : number of pixels
+
+				// green pixels
+				for (py = 60; py < 120; py++) {
+					for (px = 0; px < 180; px++) {
+						hue = (U8)((0xff00 & mysurf[py][px]) >> 8);
+						sat = (U8)((0x00f0 & mysurf[py][px]) >> 4);
+						//val = (U8)(0x000f & mysurf[py][px]);
+
+						if ((hue > 70 && hue <= 100) && (sat > 1)) {
+							cntA += px;
+							cntB++;
+							pala[py][px] = 0x001f;
+						}
+					}
+				}
+
+				dstX = (int)(cntA / cntB);
+				if (cntB == 0)
+					dstX = -1;
+
+				fprintf(logf, ">> dstX = 5%d.\n", dstX);
+				for (py = 0; py < 120; py++) {
+					pala[py][dstX] = 0xf800;
+				}
+
+				clear_screen();
+				draw_fpga_video_data_full(pala_mem);
+				flip();
+
+				if (dstX < 0) {
+					fprintf(logf, ">> no green pixels.\n");
+				}
+				else if (dstX < 70) {
+					//Motion_SOC(sr_2);
+					//fprintf(logf, ">> move right fast.\n");
+					Motion_SOC(sl_2);
+					fprintf(logf, ">> move left fast.\n");
+				}
+				else if (dstX >= 70 && dstX < 80) {
+					//Motion_SOC(sr_1);
+					//fprintf(logf, ">> move right.\n");
+					Motion_SOC(sl_1);
+					fprintf(logf, ">> move left.\n");
+				}
+				else if (dstX >= 80 && dstX <= 100) {
+					Motion_SOC(walk_4);
+					fprintf(logf, ">> move forward.\n");
+				}
+				else if (dstX > 100 && dstX <= 110) {
+					//Motion_SOC(sl_1);
+					//fprintf(logf, ">> move left.\n");
+					Motion_SOC(sr_1);
+					fprintf(logf, ">> move right.\n");
+				}
+				else if (dstX > 110) {
+					//Motion_SOC(sl_2);
+					//fprintf(logf, ">> move left fast.\n");
+					Motion_SOC(sr_2);
+					fprintf(logf, ">> move right fast.\n");
+				}
+			}
+			break;
+		}
+		
+		
+
+		switch (stateB) {
+		case fitted:
+		case bit_close:
+		case too_close:
+			fprintf(logf, "[LOG] mot_runBridge \n>> end line detected.\n");
+			loop_ctrl = 0;
+			break;
+		case far_far:
+		case far:
+			fprintf(logf, "[LOG] mot_runBridge \n>> end line detected(far).\n");
+			if (flow_ctrl) {
+				loop_ctrl = 0;
+				break;
+			}
+			flow_ctrl = 1;
+			fprintf(logf, ">> flow control enabled.\n");
+			break;
+		default:
+			fprintf(logf, "[LOG] mot_runBridge \n>> no end line.\n");
+			break;
+		}
+	}
+
+	flg = 1;
+	while (flg) {
+		direct_camera_display_off();
+		state = peek_bdgland(logf);
+		direct_camera_display_on();
+		if (state != fitted) {
+			switch (state) {
+			case skewed_left:
+				Motion_SOC(tr_1);
+				Motion_SOC(head_2cm);
+				break;
+			case skewed_right:
+				Motion_SOC(tl_1);
+				Motion_SOC(head_2cm);
+				break;
+			case far_far:
+			case far:
+				Motion_SOC(walk_1);
+				//Motion_SOC(tr_1);
+				Motion_SOC(head_2cm);
+				_wait_d;
+				break;
+			case bit_close:
+			case too_close:
+				flg = 0;
+				break;
+			default:
+				Motion_SOC(head_std);
+				Motion_SOC(head_2cm);
+				/*
+				read_fpga_video_data(fvda);
+				get_surf(surf, fvda);
+
+				memset(pala_mem, 0, sizeof(U16)*pl);
+				cntA = 0;
+
+				// mid screen
+				for (py = 0; py < 120; py++) {
+					for (px = 0; px < 180; px++) {
+						val = (U8)(0x000f & mysurf[py][px]);
+
+						if (val < 6) {
+							cntA++;
+							pala[py][px] = 0xf100;
+						}
+						else
+							pala[py][px] = 0x001f;
+					}
+				}
+
+				clear_screen();
+				draw_fpga_video_data_full(pala_mem);
+				flip();
+
+				fprintf(logf, "[LOG] mot_runBridge \n>> cnt Black : %d.\n", cntA);
+
+				if (cntA > 2900)
+					Motion_SOC(walk_1);
+				else
+					flg = 0;
+				*/
+				break;
+			}
+		}
+		else
+			break;
+	}
+	_wait_d;
+	Motion_SOC(_2cm_down);
+
+	free(fvda);
+	free(surf);
+	free(pala_mem);
+	free(pala);
+	free(mysurf);
+
+	fclose(logf);
+
+	return 0;
+}
